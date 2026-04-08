@@ -4,12 +4,40 @@ This guide gets participants from zero to a working agent quickly.
 
 ## 1) Prerequisites
 
-- Python 3.10+
-- Node.js 18+ (required for the `filesystem` MCP server)
-- Cursor
-- An OpenRouter account and API key
+- **Python 3.10+**
+- **Node.js 18+** (required for the `filesystem` MCP server)
+- **Cursor**
+- **An OpenRouter account and API key**
 
-OpenRouter signup and docs: [openrouter.ai](https://openrouter.ai/)
+### Installing Prerequisites
+
+**Python 3.10+**
+
+| Platform | Command |
+|----------|---------|
+| macOS (Homebrew) | `brew install python@3.12` |
+| Ubuntu / Debian | `sudo apt update && sudo apt install python3 python3-venv python3-pip` |
+| Windows | Download from <https://www.python.org/downloads/> and check "Add to PATH" during install |
+
+Verify: `python3 --version`
+
+**Node.js 18+**
+
+| Platform | Command |
+|----------|---------|
+| macOS (Homebrew) | `brew install node` |
+| Any (via nvm — recommended) | `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
+| Windows | Download the LTS installer from <https://nodejs.org/> |
+
+Verify: `node --version`
+
+**Cursor**
+
+Download from <https://www.cursor.com/> and follow the installer for your OS.
+
+**OpenRouter API Key**
+
+It will be provided by the workshop organisers.
 
 ## 2) Setup (10-minute path)
 
@@ -27,7 +55,7 @@ From repo root:
 4. Install dependencies:
    - `pip install -r apps/streamlit-agent/requirements.txt`
 5. Verify setup:
-   - `python3 -m pytest apps/streamlit-agent/tests/`
+   - `cd apps/streamlit-agent && python3 -m pytest && cd ../..`
 6. Launch:
    - `streamlit run apps/streamlit-agent/app.py`
 

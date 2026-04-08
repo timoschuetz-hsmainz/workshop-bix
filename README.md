@@ -1,47 +1,34 @@
-# Agentic Workshop Quickstarter
+# Agentic Workshop
 
-This repo is a fast starter for participants to build agentic apps with a Python-first path:
+A starter repo for workshop participants to build agentic apps using Cursor, LangGraph, and OpenRouter.
 
-- `Streamlit` UI for rapid iteration
-- `LangChain` + `LangGraph` for agent logic
-- `OpenRouter` as the default LLM provider
-- `Cursor` + MCP setup for assisted development
+**Got stuck? Chat with Cursor for help — that's the point!**
 
-**Got stuck? You can always chat with Cursor for help!**
+## What's Inside
 
-## Quick Start
+| Path | What it provides |
+|------|-----------------|
+| `apps/streamlit-agent/` | Runnable Streamlit + LangGraph starter app with a planner/actor agent and a calculator tool |
+| `apps/next-extension/` | Optional Next.js + shadcn extension guidance |
+| `.cursor/mcp.json` | Pre-configured MCP servers (`filesystem`, `docs-langchain`, `shadcn`) |
+| `AGENTS.md` | Agent roles, tool contracts, and prompting guardrails |
+| `quickstarter.md` | Step-by-step setup, prerequisites, and first exercises |
+| `troubleshooting.md` | Common issues and fixes |
 
-1. Copy the example and configure env file:
-   - `cp .env.example .env`
-   - Edit `.env` and set `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL`, and `OPENROUTER_MODEL`
-2. Create and activate a virtual environment:
-   - `python3 -m venv .venv`
-   - `source .venv/bin/activate`
-3. Install dependencies:
-   - `pip install -r apps/streamlit-agent/requirements.txt`
-4. Verify setup:
-   - `python3 -m pytest apps/streamlit-agent/tests/`
-5. Run the app:
-   - `streamlit run apps/streamlit-agent/app.py`
+## Tech Stack
 
-For the full setup path and learning flow, see:
+- **UI** — Streamlit for rapid iteration
+- **Agent framework** — LangChain + LangGraph
+- **LLM provider** — OpenRouter (default model: `openai/gpt-4o-mini`)
+- **IDE** — Cursor with MCP-assisted development
 
-- [quickstarter.md](quickstarter.md)
-- [AGENTS.md](AGENTS.md)
-- [apps/streamlit-agent/README.md](apps/streamlit-agent/README.md)
+## Get Started
 
-## Repository Map
+Follow the **[Quickstarter Guide](quickstarter.md)** — it covers prerequisites, installation, environment setup, and your first run in about 10 minutes.
 
-- `quickstarter.md`: step-by-step onboarding and examples
-- `AGENTS.md`: agent roles, contracts, and guardrails
-- `.cursor/mcp.json`: repo-level MCP template for Cursor
-- `apps/streamlit-agent/`: runnable starter app
-- `apps/next-extension/`: optional Next.js + shadcn extension guidance
+## Key Links
 
-## OpenRouter-First Defaults
-
-This repo expects:
-
-- `OPENROUTER_API_KEY`
-- `OPENROUTER_BASE_URL=https://openrouter.ai/api/v1`
-- `OPENROUTER_MODEL=<model-id>`
+- [Quickstarter Guide](quickstarter.md) — from zero to a working agent
+- [Agent Contracts](AGENTS.md) — how the planner/actor agents and tools are designed
+- [Streamlit App README](apps/streamlit-agent/README.md) — app-specific details
+- [Troubleshooting](troubleshooting.md) — common issues and fixes

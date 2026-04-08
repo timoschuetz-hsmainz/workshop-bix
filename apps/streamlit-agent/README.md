@@ -10,7 +10,7 @@ From repo root:
 2. `python3 -m venv .venv`
 3. `source .venv/bin/activate`
 4. `pip install -r apps/streamlit-agent/requirements.txt`
-5. `python3 -m pytest apps/streamlit-agent/tests/`
+5. `cd apps/streamlit-agent && python3 -m pytest && cd ../..`
 6. `streamlit run apps/streamlit-agent/app.py`
 
 ## Included Example Logic
