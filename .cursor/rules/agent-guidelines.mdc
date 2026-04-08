@@ -1,0 +1,13 @@
+---
+description: Workshop quickstarter coding guidelines
+globs:
+  - apps/streamlit-agent/**
+alwaysApply: true
+---
+
+- Keep examples simple and runnable.
+- Prefer deterministic tools for demos.
+- Validate env vars with clear error messages.
+- Keep prompts short and explicit.
+- Prefer MCP-backed docs/tools when relevant (`docs-langchain`, `shadcn`).
+- Add or update smoke tests when behavior changes.

@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "."
+      ]
+    },
+    "docs-langchain": {
+      "url": "https://docs.langchain.com/mcp"
+    },
+    "shadcn": {
+      "url": "https://www.shadcn.io/api/mcp"
+    }
+  }
+}
