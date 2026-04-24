@@ -3,4 +3,7 @@ langchain>=0.3.0
 langchain-openai>=0.2.0
 langgraph>=0.2.0
 python-dotenv>=1.0.1
+plotly>=5.22.0
+scikit-learn>=1.4.0
+tslearn>=0.6.3
 pytest>=8.0.0
