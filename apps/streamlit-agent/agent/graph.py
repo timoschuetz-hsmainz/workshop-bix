@@ -284,6 +284,76 @@ def build_graph():
     return graph.compile()
 
 
+def generate_snapshot_report(
+    batch_id: str,
+    phase: str,
+    t_pct: float,
+    z_scores: dict[str, float],
+    flags: dict[str, bool],
+) -> str:
+    """Generate an operator-facing report for the current moment in a live batch run."""
+    llm = _build_llm(get_settings())
+
+    flagged = sorted(
+        [(v, z_scores[v]) for v in z_scores if flags.get(v)],
+        key=lambda kv: abs(kv[1]),
+        reverse=True,
+    )
+
+    table_rows = []
+    for var, z in flagged:
+        label, ampel = _severity(abs(z))
+        name = _VARIABLE_NAMES.get(var, var)
+        direction = "zu hoch ↑" if z > 0 else "zu niedrig ↓"
+        table_rows.append(f"| {name} | {ampel} {label} | {direction} |")
+
+    driver_table = (
+        (
+            "| Messwert | Abweichung | Richtung |\n"
+            "|---|---|---|\n"
+            + "\n".join(table_rows)
+        )
+        if table_rows
+        else "Aktuell keine auffälligen Messwerte."
+    )
+
+    system_prompt = (
+        "Du bist ein Produktionsassistent, der Echtzeit-Hinweise für Maschinenführer in einer Fabrik schreibt. "
+        "Deine Leser haben keine technische Ausbildung und kennen keine Fachbegriffe. "
+        "Halte dich strikt an folgende Regeln:\n"
+        "1. Schreibe ausschließlich auf Deutsch.\n"
+        "2. Verwende KEINE technischen Begriffe wie Z-Wert, Anomalie-Score, Standardabweichung, Median, Golden Profile oder ähnliches.\n"
+        "3. Nenne KEINE konkreten Zahlenwerte. Beschreibe Abweichungen nur mit 'gering', 'mittel' oder 'hoch'.\n"
+        "4. Schreibe in kurzen, klaren Sätzen – so wie du es einem Kollegen auf dem Hallenflur erklären würdest.\n"
+        "5. Die auffälligen Messwerte sind bereits als Tabelle vorgegeben. Übernimm diese Tabelle exakt – ergänze sie nicht und verändere sie nicht.\n"
+        "6. Verwende diese Markdown-Überschriften exakt so: '### Aktuelle Situation', '### Auffällige Messwerte', '### Sofortmaßnahmen', '### Empfehlungen für den nächsten Batch'.\n"
+        "7. Sofortmaßnahmen: Was kann der Maschinenführer JETZT noch tun, um diesen Batch zu verbessern?\n"
+        "8. Empfehlungen für den nächsten Batch: Eine konkrete Anweisung pro auffälligem Messwert."
+    )
+
+    user_prompt = (
+        f"Erstelle einen Momentaufnahme-Bericht für Batch {batch_id}.\n\n"
+        f"Aktuelle Phase: {phase}\n"
+        f"Zeitfortschritt im Batch: ca. {t_pct:.0f} %\n\n"
+        f"Auffällige Messwerte (bereits als Tabelle – exakt so übernehmen):\n\n{driver_table}\n\n"
+        "Strukturiere den Bericht mit diesen vier Abschnitten:\n\n"
+        "### Aktuelle Situation\n"
+        "(1–2 Sätze: Was passiert gerade? Nenne Phase und wie weit der Batch fortgeschritten ist.)\n\n"
+        "### Auffällige Messwerte\n"
+        "(Tabelle hier exakt einfügen.)\n\n"
+        "### Sofortmaßnahmen\n"
+        "(Eine konkrete Anweisung pro auffälligem Messwert: Was JETZT noch tun?)\n\n"
+        "### Empfehlungen für den nächsten Batch\n"
+        "(Konkrete Hinweise, was beim nächsten Batch anders gemacht werden soll. Eine Empfehlung pro auffälligem Messwert.)"
+    )
+
+    try:
+        msg = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)])
+        return str(msg.content).strip()
+    except Exception as exc:  # noqa: BLE001
+        return f"Berichtserstellung fehlgeschlagen: {exc}"
+
+
 def run_agent(user_input: str) -> dict[str, Any]:
     app = build_graph()
     result = app.invoke(

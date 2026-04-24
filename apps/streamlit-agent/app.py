@@ -7,7 +7,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 from agent.batches import load_case_a_batches, resolve_case_a_batches_path
-from agent.graph import run_agent
+import pandas as pd
+
+from agent.graph import run_agent, generate_snapshot_report
 from agent.golden_profile import build_case_a_golden_profile
 from agent.monitoring import evaluate_stream, evaluate_stream_dtw
 from agent.timeseries import load_case_a_timeseries, phase_segments, resolve_case_a_timeseries_path
@@ -15,7 +17,7 @@ from agent.driver_analysis import analyze_batch_against_golden_profile
 from agent.multivariate import score_isolation_forest
 
 
-st.set_page_config(page_title="Agentic Workshop Quickstarter", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="Golden Batch Detective", page_icon="🔍", layout="wide")
 
 
 def _check_password() -> bool:
@@ -26,7 +28,7 @@ def _check_password() -> bool:
     if not expected:
         return True  # No password configured → open access (local dev)
 
-    st.title("Agentic Workshop Quickstarter")
+    st.title("Golden Batch Detective 🔍")
     with st.form("login_form"):
         pw = st.text_input("Passwort", type="password")
         if st.form_submit_button("Anmelden"):
@@ -41,7 +43,7 @@ def _check_password() -> bool:
 if not _check_password():
     st.stop()
 
-st.title("Agentic Workshop Quickstarter")
+st.title("Golden Batch Detective 🔍")
 
 repo_root = Path(__file__).resolve().parents[2]
 
@@ -59,7 +61,7 @@ except Exception as exc:  # noqa: BLE001
     st.error(f"Could not load caseA_timeseries.csv: {exc}")
     all_points = []
 
-tabs = st.tabs(["Golden Profile", "Live Monitoring", "Report"])
+tabs = st.tabs(["Batch-Übersicht", "Golden Profile", "Live Monitoring", "Report"])
 
 
 @st.cache_data(show_spinner=False)
@@ -198,7 +200,199 @@ def _add_phase_bands(fig: go.Figure, segs) -> None:
         )
 
 
+_VAR_NAMES: dict[str, str] = {
+    "temp_C": "Temperatur",
+    "pH": "pH-Wert",
+    "feed_A_Lph": "Zulauf A",
+    "feed_B_Lph": "Zulauf B",
+    "agitator_rpm": "Rührerdrehzahl",
+    "pressure_bar": "Druck",
+    "dissolved_O2": "Gelöster Sauerstoff",
+    "conductivity": "Leitfähigkeit",
+    "turbidity": "Trübung",
+    "level_L": "Füllstand",
+    "flow_rate": "Durchfluss",
+    "viscosity": "Viskosität",
+}
+
+_VAR_UNITS: dict[str, str] = {
+    "temp_C": "°C",
+    "pH": "–",
+    "feed_A_Lph": "L/h",
+    "feed_B_Lph": "L/h",
+    "agitator_rpm": "rpm",
+    "pressure_bar": "bar",
+    "dissolved_O2": "%",
+    "conductivity": "mS/cm",
+    "turbidity": "NTU",
+    "level_L": "L",
+    "flow_rate": "L/h",
+    "viscosity": "mPas",
+}
+
+
+def _batch_status(info) -> tuple[str, str]:
+    """Returns (emoji, label) for a batch info object."""
+    if info is None:
+        return "⚪", "Unbekannt"
+    is_anom = getattr(info, "is_anomalous", None)
+    q_pass = getattr(info, "quality_pass", None)
+    if is_anom == 0 and q_pass:
+        return "🟢", "Gut"
+    if is_anom == 1:
+        return "🔴", "Auffällig"
+    return "🟡", "Ungeprüft"
+
+
 with tabs[0]:
+    st.subheader("Batch-Übersicht")
+    if not all_points or not batches_by_id:
+        st.info("Keine Batch-Daten geladen.")
+    else:
+        if "overview_batch" not in st.session_state:
+            st.session_state["overview_batch"] = sorted(batches_by_id.keys())[0]
+
+        col_list, col_detail = st.columns([1, 4], gap="large")
+
+        with col_list:
+            st.markdown("**Batches**")
+            search_q = st.text_input("Suche", placeholder="Batch-ID …", key="batch_search", label_visibility="collapsed")
+            all_bids = sorted(batches_by_id.keys())
+            filtered_bids = [b for b in all_bids if search_q.lower() in b.lower()] if search_q else all_bids
+            with st.container(height=520):
+                for bid in filtered_bids:
+                    emoji, label = _batch_status(batches_by_id.get(bid))
+                    is_sel = st.session_state.get("overview_batch") == bid
+                    if st.button(
+                        f"{emoji} {bid}",
+                        key=f"obatch_{bid}",
+                        use_container_width=True,
+                        type="primary" if is_sel else "secondary",
+                    ):
+                        st.session_state["overview_batch"] = bid
+                        st.rerun()
+
+        with col_detail:
+            sel = st.session_state.get("overview_batch")
+            if not sel:
+                st.info("Bitte einen Batch auswählen.")
+            else:
+                info = batches_by_id.get(sel)
+                emoji, label = _batch_status(info)
+                if label == "Gut":
+                    st.success(f"{emoji} **{sel}** — {label}")
+                elif label == "Auffällig":
+                    st.error(f"{emoji} **{sel}** — {label}")
+                else:
+                    st.warning(f"{emoji} **{sel}** — {label}")
+
+                batch_pts = _batch_points(sel)
+                if not batch_pts:
+                    st.info(f"Keine Datenpunkte für {sel}.")
+                else:
+                    try:
+                        profile = _cached_golden_profile()
+                    except Exception as exc:  # noqa: BLE001
+                        st.error(f"Golden Profile nicht verfügbar: {exc}")
+                        profile = {"rows": [], "meta": {}}
+
+                    # Build golden profile index: (phase, variable) -> list of rows
+                    gp_idx: dict[tuple[str, str], list[dict]] = {}
+                    for r in profile.get("rows") or []:
+                        try:
+                            gp_idx.setdefault((str(r["phase"]), str(r["variable"])), []).append(r)
+                        except Exception:  # noqa: BLE001
+                            continue
+
+                    # Phases in order of appearance
+                    _seen_ov: set[str] = set()
+                    phases_ov = [
+                        str(s.phase) for s in phase_segments(batch_pts)
+                        if str(s.phase) and str(s.phase) not in _seen_ov
+                        and not _seen_ov.add(str(s.phase))  # type: ignore[func-returns-value]
+                    ]
+                    variables_ov = sorted({v for p in batch_pts for v in p.values.keys()})
+                    segs_ov = phase_segments(batch_pts)
+
+                    chart_cols = st.columns(2)
+                    for vi, var in enumerate(variables_ov):
+                        unit = _VAR_UNITS.get(var, "–")
+                        name = _VAR_NAMES.get(var, var)
+
+                        t_x = [float(p.t_pct) for p in batch_pts]
+                        y_batch = [float(p.values.get(var, float("nan"))) for p in batch_pts]
+                        opt_x: list[float] = []
+                        opt_mean: list[float] = []
+                        opt_lower: list[float] = []
+                        opt_upper: list[float] = []
+                        pt_colors: list[str] = []
+
+                        for p in batch_pts:
+                            t_b = int((float(p.t_pct) // 5) * 5)
+                            gp_rows = gp_idx.get((str(p.phase), var), [])
+                            row = next(
+                                (r for r in gp_rows if int(r.get("t_pct_bucket", -1)) == t_b),
+                                gp_rows[0] if gp_rows else None,
+                            )
+                            if row and var in p.values:
+                                std_v = float(row["std"]) if float(row["std"]) > 0 else 1.0
+                                z = abs(float(p.values[var]) - float(row["mean"])) / std_v
+                                pt_colors.append(
+                                    "#E45756" if z >= 2.5 else "#EECA3B" if z >= 1.2 else "#54A24B"
+                                )
+                                opt_x.append(float(p.t_pct))
+                                opt_mean.append(float(row["mean"]))
+                                opt_lower.append(float(row["lower"]))
+                                opt_upper.append(float(row["upper"]))
+                            else:
+                                pt_colors.append("#AAAAAA")
+
+                        if "#E45756" in pt_colors:
+                            status_ov = "🔴"
+                        elif "#EECA3B" in pt_colors:
+                            status_ov = "🟡"
+                        else:
+                            status_ov = "🟢"
+
+                        fig_v = go.Figure()
+                        _add_phase_bands(fig_v, segs_ov)
+                        if opt_x:
+                            fig_v.add_trace(go.Scatter(
+                                x=opt_x, y=opt_upper, mode="lines",
+                                line=dict(width=0), showlegend=False, hoverinfo="skip",
+                            ))
+                            fig_v.add_trace(go.Scatter(
+                                x=opt_x, y=opt_lower, mode="lines",
+                                line=dict(width=0), fill="tonexty",
+                                fillcolor="rgba(76,120,168,0.12)",
+                                showlegend=False, hoverinfo="skip",
+                            ))
+                            fig_v.add_trace(go.Scatter(
+                                x=opt_x, y=opt_mean, mode="lines",
+                                line=dict(width=1.5, dash="dot", color="rgba(76,120,168,0.55)"),
+                                showlegend=False, hoverinfo="skip",
+                            ))
+                        fig_v.add_trace(go.Scatter(
+                            x=t_x, y=y_batch,
+                            mode="lines+markers",
+                            line=dict(color="rgba(50,50,50,0.45)", width=1.5),
+                            marker=dict(color=pt_colors, size=5),
+                            showlegend=False,
+                            hovertemplate=f"<b>%{{y:.3f}} {unit}</b><br>Zeitfortschritt: %{{x:.1f}} %<extra></extra>",
+                        ))
+                        fig_v.update_layout(
+                            height=220,
+                            margin=dict(l=10, r=10, t=28, b=30),
+                            xaxis_title="Zeitfortschritt (%)",
+                            yaxis_title=unit,
+                            title=dict(text=f"{status_ov} {name}", font=dict(size=13), x=0),
+                        )
+
+                        with chart_cols[vi % 2]:
+                            st.plotly_chart(fig_v, use_container_width=True)
+
+
+with tabs[1]:
     st.subheader("Golden Profile")
     if not all_points:
         st.info("Timeseries file not loaded.")
@@ -292,7 +486,7 @@ Der Graph unten markiert **alle Messpunkte**, die tatsächlich als Datengrundlag
 
 
 
-with tabs[1]:
+with tabs[2]:
     if st.session_state.get("_monitor_fullscreen"):
         fig_fs = st.session_state.get("_monitor_fig")
         last_fs = st.session_state.get("_monitor_last")
@@ -547,6 +741,71 @@ with tabs[1]:
 
             _render_warning_box(last)
 
+            # ── Detail table ─────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### Detailansicht — Messwerte im Vergleich")
+
+            last_pt = pts_n[-1]
+            detail_rows = []
+            for var in variables_all:
+                unit = _VAR_UNITS.get(var, "–")
+                cur_val = last_pt.values.get(var)
+                if cur_val is None:
+                    continue
+                z = last.z_scores.get(var)
+                flagged_var = last.flags.get(var, False)
+                t_b = _t_bucket(last_pt.t_pct)
+                gp_row = gp_index.get((str(last_pt.phase), t_b, var))
+                if gp_row:
+                    golden_med: float | str = round(float(gp_row["mean"]), 3)
+                    golden_band: str = f"{float(gp_row['lower']):.3f} – {float(gp_row['upper']):.3f}"
+                else:
+                    golden_med = "–"
+                    golden_band = "–"
+                abs_z = abs(z) if z is not None else -1.0
+                if z is not None:
+                    status = "🔴" if abs_z >= 2.5 else "🟡" if abs_z >= 1.2 else "🟢"
+                    abw_label = "hoch" if abs_z >= 2.5 else "mittel" if abs_z >= 1.2 else "gering"
+                else:
+                    status = "⚪"
+                    abw_label = "–"
+                detail_rows.append({
+                    "_abs_z": abs_z,
+                    "_flagged": flagged_var,
+                    "": status,
+                    "Messwert": _VAR_NAMES.get(var, var),
+                    "Kennung": var,
+                    "Einheit": unit,
+                    "Aktueller Wert": round(float(cur_val), 3),
+                    "Golden Median": golden_med,
+                    "Golden Band": golden_band,
+                    "Abweichung": abw_label,
+                })
+            detail_rows.sort(key=lambda r: (-int(r["_flagged"]), -r["_abs_z"]))
+            display_rows = [{k: v for k, v in r.items() if not k.startswith("_")} for r in detail_rows]
+            if display_rows:
+                st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True)
+
+            # ── Snapshot report ───────────────────────────────────────────
+            if st.button("📋 Momentaufnahme-Bericht erstellen", key="snap_report_btn"):
+                with st.spinner("Bericht wird erstellt…"):
+                    try:
+                        snap_text = generate_snapshot_report(
+                            batch_id=batch_id,
+                            phase=last.phase,
+                            t_pct=last.t_pct,
+                            z_scores=last.z_scores,
+                            flags=last.flags,
+                        )
+                        st.session_state["_snap_report"] = snap_text
+                    except Exception as exc:  # noqa: BLE001
+                        st.error(f"Fehler: {exc}")
+
+            snap = st.session_state.get("_snap_report")
+            if snap:
+                st.markdown(snap)
+
+            st.markdown("---")
             st.markdown("**Erklärbarkeit (welcher Messwert den Batch wie stark beeinflusst)**")
             if not evals:
                 st.info("Noch keine Auswertung.")
@@ -586,7 +845,7 @@ with tabs[1]:
                 st.rerun()
 
 
-with tabs[2]:
+with tabs[3]:
     st.subheader("Report")
     batch_default = "A_B003"
     batch_id = st.text_input("Batch-ID", value=batch_default)
@@ -636,7 +895,7 @@ if "history" not in st.session_state:
 with st.form("prompt_form"):
     user_prompt = st.text_area(
         "Frage den Assistenten",
-        placeholder="z.B.: Berechne (12 * 8) + 5 und erkläre kurz.",
+        placeholder="z.B.: Erkläre mir, was in Batch A_B152 schiefgelaufen ist, sodass die Qualität nicht eingehalten werden konnte.",
         height=100,
     )
     submitted = st.form_submit_button("Agent starten")
